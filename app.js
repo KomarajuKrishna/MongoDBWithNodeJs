@@ -1,7 +1,6 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
-const Employees = require("./models/schema");
 const Router = require("./routers/employeeRoutes");
 
 const app = express();
