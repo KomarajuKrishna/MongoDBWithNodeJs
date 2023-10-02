@@ -1,8 +1,33 @@
 const express = require("express");
 const router = express.Router();
+const jwt = require("jsonwebtoken");
 const Employees = require("../models/schema");
+const Redis = require("ioredis");
+const redisClient = new Redis();
+// const DEFAULT_EXPIRATION = 3600;
 
-router.post("/addemployee", async (request, response) => {
+const verifyAccessToken = (request, response, next) => {
+  let jwtToken = null;
+  const header = request.headers["authorization"];
+  if (header !== undefined) {
+    jwtToken = header.split(" ")[1];
+  }
+  if (jwtToken === undefined) {
+    response.status(401);
+    response.send("Invalid Access Token");
+  } else {
+    jwt.verify(jwtToken, "AccessToken", async (error, playLoad) => {
+      if (error) {
+        response.status(401);
+        response.send("Invalid Access Token");
+      } else {
+        next();
+      }
+    });
+  }
+};
+
+router.post("/addemployee", verifyAccessToken, async (request, response) => {
   try {
     const newEmployee = new Employees(request.body);
     await newEmployee.save();
@@ -16,23 +41,54 @@ router.post("/addemployee", async (request, response) => {
   }
 });
 
-//Get all Employees Api
+// Get all Employees Api
 
-router.get("/", async (request, response) => {
+// router.get("/", verifyAccessToken, async (request, response) => {
+//   try {
+//     const allEmployeesDetails = await Employees.find();
+//     response.status(200);
+
+//     response.json({ allEmployeesDetails });
+//   } catch (error) {
+//     response.status(500);
+//     // response.send("Failed to Get Employees Details");
+//     console.log("Error: ", error.message);
+//   }
+// });
+
+router.get("/", verifyAccessToken, async (request, response) => {
   try {
-    const allEmployeesDetails = await Employees.find();
-    response.status(200);
-    response.json({ allEmployeesDetails });
+    // Check if the data is already cached in Redis
+    const cachedData = await redisClient.get("EmployeesDetails");
+
+    if (cachedData) {
+      console.log("Cache hit");
+      const parsedData = JSON.parse(cachedData);
+      return response.json(parsedData);
+    } else {
+      // If data is not in cache, fetch it from the database
+      const allEmployeesDetails = await Employees.find();
+
+      // Store the fetched data in Redis with an expiration time (e.g., 1 hour)
+      await redisClient.set(
+        "EmployeesDetails",
+        JSON.stringify(allEmployeesDetails),
+        "EX",
+        3600
+      );
+
+      response.status(200);
+      response.json({ allEmployeesDetails });
+    }
   } catch (error) {
     response.status(500);
-    response.send("Failed to Get Employees Details");
-    console.log("Error: ", error.message);
+    console.log(error);
   }
 });
 
 //Get Employee By ID Api
 
-router.get("/:id", async (request, response) => {
+router.get("/:id", verifyAccessToken, async (request, response) => {
   try {
     const employeeDetails = await Employees.findById(request.params.id);
     if (employeeDetails === null) {
@@ -51,7 +107,7 @@ router.get("/:id", async (request, response) => {
 
 // Update Employee Details
 
-router.put("/:id", async (request, response) => {
+router.put("/:id", verifyAccessToken, async (request, response) => {
   try {
     const updateEmployeeDetails = await Employees.findByIdAndUpdate(
       request.params.id,
@@ -74,7 +130,7 @@ router.put("/:id", async (request, response) => {
 
 //Delete Employee By ID Api
 
-router.delete("/:id", async (request, response) => {
+router.delete("/:id", verifyAccessToken, async (request, response) => {
   try {
     const deleteEmployee = await Employees.findByIdAndDelete(request.params.id);
     if (deleteEmployee === null) {
